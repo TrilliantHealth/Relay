@@ -29,6 +29,12 @@ interface MetaBase {
 	hash?: string;
 	synctime?: number;
 	mimetype?: string;
+	/** Mint provenance (TH fork). Best-effort: clients without these fields
+	 * drop them when they rewrite the entry. */
+	mintedBy?: string;
+	mintClient?: string;
+	mintVersion?: string;
+	mintedAt?: number;
 }
 
 export interface FolderMeta extends MetaBase {

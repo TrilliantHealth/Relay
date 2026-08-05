@@ -1193,6 +1193,11 @@ export class MergeManager {
     return this._managedMetaCache.get(guid);
   }
 
+  /** Bulk-loaded record metadata for a document or managed file. */
+  getPersistedStateMeta(guid: string): PersistedStateMeta | undefined {
+    return this._stateMetaCache.get(guid) ?? this._managedMetaCache.get(guid);
+  }
+
   /**
    * Refresh the managed-file caches from a freshly persisted record,
    * projected into the same lightweight meta shape the cold-start bulk

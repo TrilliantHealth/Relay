@@ -18,6 +18,8 @@ import {
 	IndexeddbPersistence,
 } from "./storage/y-indexeddb";
 import { dirname, join, sep } from "path-browserify";
+
+declare const GIT_TAG: string;
 import { HasProvider, type ConnectionIntent } from "./HasProvider";
 import type { EventMessage } from "./client/provider";
 import { Document } from "./Document";
@@ -321,6 +323,10 @@ export class SharedFolder extends HasProvider {
 	private _firstSyncConverged = false;
 	private _firstSyncConvergedPromise: Promise<void> | undefined;
 	private _resolveFirstSyncConverged: (() => void) | undefined;
+	/** One-shot flag for the first-sync offline-delete scan. */
+	private _offlineDeleteScanDone = false;
+	/** Paths the scan approved for deletion propagation; valid for one tree sync. */
+	private _approvedOfflineDeletes = new Set<string>();
 	/** Paths removed by provider-applied membership updates before convergence. */
 	private _preConvergenceRemoteDeletes: Set<string> | undefined;
 	/** Deleted paths that had a local publication hold when convergence opened. */
@@ -2453,6 +2459,23 @@ export class SharedFolder extends HasProvider {
 			}
 		}
 
+		// The offline-delete scan approved this path: the file was materialized
+		// here and removed from disk while the plugin was not running, so
+		// re-creating it would silently reverse a deletion. Propagate the
+		// delete instead.
+		if (this._approvedOfflineDeletes.has(path)) {
+			this._approvedOfflineDeletes.delete(path);
+			diffLog.push(`propagating offline deletion of ${path}`);
+			const promise = this.vault.adapter
+				.exists(normalizePath(join(this.path, path)))
+				.then((exists) => {
+					if (exists) return;
+
+					this.deleteFiles([path]);
+				});
+			return { op: "delete", path, promise };
+		}
+
 		// write will trigger `create` which will read the file from disk by default.
 		// so we need to pre-empt that by loading the file into docs.
 		const promise = this._handleServerCreate(path, meta, diffLog);
@@ -2533,9 +2556,26 @@ export class SharedFolder extends HasProvider {
 				if (synced) {
 					diffLog.push(`deleted local file ${vpath} for remotely deleted doc`);
 					this.markPendingDelete(vpath);
-					const promise = this.vault.adapter.trashLocal(file.path).finally(() => {
-						this.clearPendingDelete(vpath);
-					});
+					const promise = this.vault.adapter
+						.trashLocal(file.path)
+						.then(() => {
+							// The suppressed delete echo leaves the live doc in
+							// place, and a surviving doc's next engine write
+							// re-creates the file (createIfMissing) and re-mints
+							// it as a new identity. Tear it down the way a
+							// processed vault delete would.
+							const doc = this.fset.find((f) => f.path === vpath);
+							if (doc) {
+								this.fset.delete(doc);
+								this.files.delete(doc.guid);
+								doc.cleanup();
+								doc.destroy();
+								this.teardownDocState(doc.guid);
+							}
+						})
+						.finally(() => {
+							this.clearPendingDelete(vpath);
+						});
 					deletes.push({
 						op: "delete",
 						path: vpath,
@@ -2997,6 +3037,87 @@ export class SharedFolder extends HasProvider {
 		this.fset.update();
 	}
 
+	/**
+	 * Files deleted from disk while the plugin was not running never fire a
+	 * vault delete event, and a committed meta path with no local file is
+	 * otherwise indistinguishable from a download that has not happened yet,
+	 * so the deletion silently reverses ("zombie files"). The persisted HSM
+	 * record is the missing witness: one mapping this guid to the same path
+	 * with disk metadata means this client had the file materialized.
+	 * Runs once, on the first tree sync after the local folder doc loads;
+	 * everything later is covered by live vault events.
+	 */
+	private prepareOfflineDeleteScan(): void {
+		if (this._offlineDeleteScanDone) return;
+		if (!this._persistence?.synced) return;
+		const mergeManager = this.mergeManager;
+		if (!mergeManager) return;
+
+		this._offlineDeleteScanDone = true;
+		const candidates: string[] = [];
+		let metaCount = 0;
+		this.syncStore.forEach((meta, path) => {
+			metaCount += 1;
+			if (this.existsSync(path)) return;
+			const record = mergeManager.getPersistedStateMeta(meta.id);
+			if (!record?.disk || record.path !== path) return;
+			if (record.folder && record.folder !== this.guid) return;
+			candidates.push(path);
+		});
+		if (candidates.length === 0) return;
+
+		// A wholesale disappearance looks less like deletion intent and more
+		// like a moved or half-restored vault; restore (current behavior)
+		// rather than propagate a mass delete.
+		if (candidates.length > 20 && candidates.length * 5 >= metaCount) {
+			this.warn(
+				`offline-delete scan: ${candidates.length} of ${metaCount} synced files are missing locally; ` +
+					"refusing to propagate deletions at this scale",
+			);
+			return;
+		}
+		candidates.forEach((path) => this._approvedOfflineDeletes.add(path));
+		this.log("offline-delete scan: propagating deletions", candidates);
+	}
+
+	/**
+	 * A pending-upload ticket whose path already has committed metadata is
+	 * finished business: a matching guid means publication completed and the
+	 * clear was missed; a different guid means the claim lost its race and
+	 * adoption has had its chance by the end of a converged sync. A leaked
+	 * ticket is not inert - it shields the local file from remote deletion
+	 * and re-publishes the path the moment its committed meta is deleted
+	 * (the zombie-file loop) - and localStorage preserves it indefinitely.
+	 */
+	private sweepStalePendingUploads(): void {
+		if (!(this._provider?.synced && this._persistence?.synced)) return;
+
+		const stale: {
+			vpath: string;
+			pending: string;
+			committed: string;
+			enrolledUnderPending: boolean;
+		}[] = [];
+		this.syncStore.pendingUpload.forEach((guid, vpath) => {
+			if (this._pendingRemaps.has(vpath)) return;
+			if (this._convergencePublicationRuns?.has(vpath)) return;
+			const committed = this.syncStore.getCommittedMeta(vpath);
+			if (!committed) return;
+			// A live instance under the losing guid means adoption stalled;
+			// clearing the ticket lets the reconciliation sweep re-key it.
+			stale.push({
+				vpath,
+				pending: guid,
+				committed: committed.id,
+				enrolledUnderPending: !!this.files.get(guid),
+			});
+		});
+		if (stale.length === 0) return;
+
+		stale.forEach(({ vpath }) => this.pendingUpload.delete(vpath));
+		this.warn("dropped stale pending-upload tickets", stale);
+	}
+
 	syncFileTree(): Promise<void> {
 		// If a sync is already running, mark that we want another sync after
 		if (this.syncFileTreePromise) {
@@ -3023,6 +3144,7 @@ export class SharedFolder extends HasProvider {
 				if (!this.mergeManager || this.destroyed) return;
 				await this.mergeManager.initialize();
 				if (this.destroyed) return;
+				this.prepareOfflineDeleteScan();
 
 				// When file types are newly enabled, enqueue their local
 				// files for syncing before the rest of the tree sync runs.
@@ -3084,7 +3206,10 @@ export class SharedFolder extends HasProvider {
 				if (diffLog.length > 0) {
 					this.log("syncFileTree diff:\n" + diffLog.join("\n"));
 				}
+				this.sweepStalePendingUploads();
 			} finally {
+				// Approvals are only valid for the sync pass that computed them.
+				this._approvedOfflineDeletes.clear();
 				// Reset the promise after completion (success or failure)
 				this.syncFileTreePromise = null;
 			}
@@ -3297,6 +3422,15 @@ export class SharedFolder extends HasProvider {
 		const mark = (file: IFile, meta: Meta) => {
 			if (!this.syncStore) {
 				return;
+			}
+
+			// Publishing our own mint: stamp its provenance so any client or
+			// tool can attribute this identity later.
+			if (this.pendingUpload.get(file.path) === meta.id) {
+				meta.mintedBy = this.loginManager?.user?.id;
+				meta.mintClient = this.appId;
+				meta.mintVersion = GIT_TAG;
+				meta.mintedAt = Date.now();
 			}
 
 			// Server-authoritative rule: never overwrite an existing committed
