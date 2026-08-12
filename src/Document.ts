@@ -79,6 +79,7 @@ export class Document extends HasProvider implements IFile, HasMimeType {
 	 */
 	private _providerIntegration: ProviderIntegration | null = null;
 	private _idleProviderIntegrationRefs = 0;
+	private _forkReconcileIdleLease = false;
 	private _activeProviderIntegration = false;
 	private _forkReconcileConnectPromise: Promise<void> | null = null;
 	// The single teardown watcher for fork-reconcile connects, keyed to the
@@ -1211,9 +1212,13 @@ export class Document extends HasProvider implements IFile, HasMimeType {
 		// A fresh remoteDoc is built only for a fork that has no integration
 		// yet; an existing integration keeps its remoteDoc and any handshake it
 		// has in flight.
-		const acquiredIntegration = this.ensureIdleProviderIntegration({
-			freshRemoteDoc: hsm.hasFork() && !this.hasProviderIntegration(),
-		});
+		if (!this._forkReconcileIdleLease || !this._providerIntegration) {
+			this._forkReconcileIdleLease = this.ensureIdleProviderIntegration({
+				freshRemoteDoc: hsm.hasFork() && !this.hasProviderIntegration(),
+			});
+		} else if (!hsm.getRemoteDoc() && this.isRemoteDocLoaded) {
+			hsm.setRemoteDoc(this.ydoc);
+		}
 		const cleanupIfDone = () => {
 			if (hsm.matches("idle.localAhead")) return;
 			if (!hsm.state.lca && hsm.matches("idle.diverged")) return;
@@ -1221,9 +1226,7 @@ export class Document extends HasProvider implements IFile, HasMimeType {
 			// reconnect can deliver the remote update that re-arms it.
 			if (hsm.matches("idle.error") && hsm.state.errorRetryable) return;
 			this.clearForkReconcileWatch();
-			if (!hsm.isActive()) {
-				this.destroyIdleProviderIntegration();
-			}
+			if (!hsm.isActive()) this.releaseForkReconcileIdleLease();
 		};
 		// One watcher per machine, however many times the poll re-drives the
 		// connect: a stacked subscription per attempt survives until document
@@ -1244,10 +1247,7 @@ export class Document extends HasProvider implements IFile, HasMimeType {
 		const connected = await this.connect();
 		this.commitDocumentState(() => {
 			if (!connected) {
-				this.clearForkReconcileWatch();
-				if (acquiredIntegration && !hsm.isActive()) {
-					this.destroyIdleProviderIntegration();
-				}
+				cleanupIfDone();
 				return;
 			}
 
@@ -1261,6 +1261,12 @@ export class Document extends HasProvider implements IFile, HasMimeType {
 	private clearForkReconcileWatch(): void {
 		this._forkReconcileWatch?.unsub();
 		this._forkReconcileWatch = null;
+	}
+
+	private releaseForkReconcileIdleLease(): void {
+		if (!this._forkReconcileIdleLease) return;
+		this._forkReconcileIdleLease = false;
+		this.destroyIdleProviderIntegration();
 	}
 
 	/**
@@ -1343,6 +1349,7 @@ export class Document extends HasProvider implements IFile, HasMimeType {
 		) {
 			this._providerIntegration.destroy();
 			this._providerIntegration = null;
+			this._forkReconcileIdleLease = false;
 			if (disconnect) {
 				this.disconnect();
 			}
