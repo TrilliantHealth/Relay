@@ -393,6 +393,9 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 	// Whether PROVIDER_SYNCED has been received during the current lock cycle
 	private _providerSynced = false;
 	private _providerHasSynced = false;
+	// Frontmatter value writes suppressed while unsynced; drained by
+	// markProviderSynced once the text is merged truth.
+	private _frontmatterMapSyncDeferred = false;
 
 	// Async operation tracking with cancellation support
 	private _asyncOps = new Map<string, { controller: AbortController; promise: Promise<void> }>();
@@ -3388,6 +3391,7 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 				// editor, and freshly-read disk text have been reconciled. A conflict
 				// never reaches this action and therefore remains deliberately unseeded.
 				this.seedFrontmatterMapFromCurrentText(false, needsFrontmatterBaseline);
+				this.drainDeferredFrontmatterMapSync();
 				if (!this._disk || data.disk.mtime >= this._disk.mtime) {
 					this._disk = { hash: data.disk.hash, mtime: data.disk.mtime };
 				}
@@ -6736,12 +6740,30 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 		) return;
 
 		this.localDoc.transact(() => {
+			this.syncFrontmatterToMap(undefined, allowBeforeProviderSync);
+		}, this);
+		this._bridge.flushOutbound();
+	}
+
+	/**
+	 * Value writes suppressed while unsynced land here, from the local text
+	 * only once it is reconciled merged truth - PROVIDER_SYNCED alone is too
+	 * early (the text merge may not have applied yet).
+	 */
+	private drainDeferredFrontmatterMapSync(): void {
+		if (!this._frontmatterMapSyncDeferred || !this.localDoc || !this._yaml) return;
+		if (!this._providerSynced && !this._isProviderSynced()) return;
+
+		this.localDoc.transact(() => {
 			this.syncFrontmatterToMap();
 		}, this);
 		this._bridge.flushOutbound();
 	}
 
-	private syncFrontmatterToMap(previousText?: string): void {
+	private syncFrontmatterToMap(
+		previousText?: string,
+		allowUnsyncedValueWrites = false,
+	): void {
 		if (!this.localDoc || !this._yaml) return;
 
 		const text = this.localDoc.getText("contents").toString();
@@ -6782,6 +6804,22 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 		// Store changed values as JSON strings for faithful round-tripping.
 		// Enrollment omits previousText to seed a full baseline. Edit paths
 		// provide it so unchanged stale values never become map writes.
+		// Values follow the same discipline as key pruning below: the map is
+		// LWW, so a value written from not-yet-synced text beats every peer's
+		// newer write. Defer those until PROVIDER_SYNCED, when the local text
+		// is the merged truth (markProviderSynced drains the deferral). The
+		// genesis enrollment seed bypasses the gate: its text is the causal
+		// baseline and there are no peers to clobber.
+		const canWriteValues =
+			allowUnsyncedValueWrites ||
+			this._providerSynced ||
+			this._isProviderSynced();
+		if (canWriteValues && this._frontmatterMapSyncDeferred) {
+			// A deferral is pending: widen this write to a full text-vs-map
+			// reconciliation so the suppressed values land now.
+			previousParsed = null;
+			this._frontmatterMapSyncDeferred = false;
+		}
 		for (const [key, value] of Object.entries(fm.parsed)) {
 			const serialized = JSON.stringify(value);
 			if (
@@ -6789,6 +6827,11 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 				!(key in previousParsed) ||
 				JSON.stringify(previousParsed[key]) !== serialized
 			) {
+				if (ymap.get(key) === serialized) continue;
+				if (!canWriteValues) {
+					this._frontmatterMapSyncDeferred = true;
+					continue;
+				}
 				ymap.set(key, serialized);
 			}
 		}
