@@ -791,6 +791,7 @@ export class MergeManager {
     getPath: () => string;
     remoteDoc: Y.Doc | null;
     getDiskContent: () => Promise<{ content: string; hash: string; mtime: number }>;
+    isDiskMaterialized?: () => boolean;
     getCurrentDiskMetadata?: () => { mtime: number; hash?: string } | null;
     getPersistenceMetadata?: () => PersistenceMetadata;
     isFolderConnected?: () => boolean;
@@ -800,6 +801,7 @@ export class MergeManager {
       getPath,
       remoteDoc,
       getDiskContent,
+      isDiskMaterialized,
       getCurrentDiskMetadata,
       getPersistenceMetadata,
       isFolderConnected,
@@ -815,6 +817,7 @@ export class MergeManager {
       createPersistence: this.createPersistence,
       persistenceMetadata: getPersistenceMetadata?.(),
       diskLoader: getDiskContent,
+      isDiskMaterialized,
       isFolderConnected,
       yaml: this._yaml ?? undefined,
     });

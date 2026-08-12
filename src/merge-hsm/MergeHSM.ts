@@ -395,6 +395,7 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 	private _createPersistence: CreatePersistence;
 	private _persistenceMetadata?: PersistenceMetadata;
 	private _diskLoader: DiskLoader;
+	private _isDiskMaterialized: () => boolean;
 	private _isProviderSynced: () => boolean;
 	private _isFolderConnected: () => boolean;
 	private _captureOpts: CaptureOpts | null;
@@ -462,6 +463,7 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 		this._createPersistence = config.createPersistence;
 		this._persistenceMetadata = config.persistenceMetadata;
 		this._diskLoader = config.diskLoader;
+		this._isDiskMaterialized = config.isDiskMaterialized ?? (() => true);
 		this._bridge = new SyncBridge(this);
 		this._isProviderSynced = config.isProviderSynced ?? (() => this._bridge.providerSynced);
 		this._isFolderConnected = config.isFolderConnected ?? (() => this._isOnline);
@@ -877,6 +879,7 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 		if (!this._lca || this._conflict) return false;
 		if (!this._disk) return true;
 		if (this._fork) {
+			if (!this._isDiskMaterialized()) return false;
 			return (
 				this._restoredForkNeedsDiskRead &&
 				!this.hasSessionFreshDiskContents()
@@ -4693,6 +4696,7 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 			this.pendingIdleUpdates = null;
 		}
 		const remoteContent = remoteDoc.getText("contents").toString();
+		const remoteWins = !this._isDiskMaterialized();
 
 		this.hsmDebug('reconcileForkInIdle', JSON.stringify({
 			guid: this._guid, captureMark: fork.captureMark, origin: fork.origin,
@@ -4711,7 +4715,12 @@ export class MergeHSM implements MachineHSM, SyncBridgeHost {
 		const remoteDroppedForkState =
 			snapshotHasOpsMissingFrom(forkRemoteSnapshot, currentRemoteSnapshot) &&
 			!snapshotHasOpsMissingFrom(currentRemoteSnapshot, forkRemoteSnapshot);
-		const mergeResult = remoteDroppedForkState
+		if (remoteWins && remoteDroppedForkState) {
+			return { success: false, awaitingProvider: true };
+		}
+		const mergeResult = remoteWins
+			? { success: true as const, merged: remoteContent }
+			: remoteDroppedForkState
 			? { success: true as const, merged: localContent }
 			: performThreeWayMerge(fork.base, localContent, remoteContent);
 
