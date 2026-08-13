@@ -195,6 +195,7 @@ export class Document
 					return;
 				}
 				mergeManager.updateSyncStatus(this.guid, syncStatus);
+				this.announceDeclaredClientIds();
 			}),
 		);
 
@@ -1032,6 +1033,38 @@ export class Document
 	 */
 	public get localDoc(): Y.Doc | null {
 		return this._hsm?.getLocalDoc() ?? null;
+	}
+
+	protected declaredClientIds(): number[] {
+		const ids = super.declaredClientIds();
+		const localDoc = this.localDoc;
+		if (localDoc && !ids.includes(localDoc.clientID)) {
+			ids.push(localDoc.clientID);
+		}
+		return ids;
+	}
+
+	private _announcedClientIds = "";
+
+	/**
+	 * The localDoc appears and disappears with merge activity, after the
+	 * connection's cid declaration was already sent - re-declare through the
+	 * awareness payload so its edits stay attributable. Sync-only providers
+	 * keep a null local state and declare on their next reconnect instead.
+	 */
+	private announceDeclaredClientIds(): void {
+		const awareness = this._provider?.awareness;
+		if (!awareness || awareness.getLocalState() === null) {
+			return;
+		}
+
+		const ids = this.declaredClientIds();
+		const announcement = ids.join(",");
+		if (announcement === this._announcedClientIds) {
+			return;
+		}
+		this._announcedClientIds = announcement;
+		awareness.setLocalStateField("relayClientIds", ids);
 	}
 
 	/**
