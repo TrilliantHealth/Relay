@@ -632,6 +632,12 @@ export class YSweetProvider extends Observable<string> {
 	eventSubscriptions: Set<string>;
 	eventCallbacks: Map<string, EventCallback[]>;
 	onSubdocIndex: SubdocIndexCallback | null;
+	/**
+	 * All client ids this plugin mints under for this doc, used to rebuild
+	 * the cid declaration on every reconnect. Null falls back to the
+	 * connected doc's own id.
+	 */
+	getDeclaredClientIds: (() => number[]) | null;
 	subdocIndexCallbacks: Set<SubdocIndexCallback>;
 	lastSubdocIndex: SubdocIndex | null;
 	getSubdocQueryDocIds: SubdocQueryDocIdsProvider | null;
@@ -746,6 +752,7 @@ export class YSweetProvider extends Observable<string> {
 		this.eventSubscriptions = new Set();
 		this.eventCallbacks = new Map();
 		this.onSubdocIndex = null;
+		this.getDeclaredClientIds = null;
 		this.subdocIndexCallbacks = new Set();
 		this.lastSubdocIndex = null;
 		this.getSubdocQueryDocIds = null;
@@ -980,6 +987,7 @@ export class YSweetProvider extends Observable<string> {
 		this._observers.clear();
 		this.subdocIndexCallbacks.clear();
 		this.onSubdocIndex = null;
+		this.getDeclaredClientIds = null;
 		this.getSubdocQueryDocIds = null;
 		this.lastSubdocIndex = null;
 
@@ -1139,7 +1147,9 @@ export class YSweetProvider extends Observable<string> {
 		const params = {
 			token,
 			v: GIT_TAG,
-			cid: String(this.doc.clientID),
+			cid: (this.getDeclaredClientIds?.() ?? [this.doc.clientID]).join(
+				",",
+			),
 		};
 		const encodedParams = url.encodeQueryParams(params);
 		const newUrl =

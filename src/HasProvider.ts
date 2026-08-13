@@ -53,11 +53,12 @@ function makeProvider(
 	user: User | undefined,
 	timeProvider: TimeProvider,
 	awarenessActive: boolean,
+	declaredClientIds: () => number[],
 ): YSweetProvider {
 	const params = {
 		token: clientToken.token,
 		v: GIT_TAG,
-		cid: String(ydoc.clientID),
+		cid: declaredClientIds().join(","),
 	};
 	// Configure the initial state before YSweetProvider subscribes to awareness
 	// updates. A sync-only provider then starts absent without buffering a
@@ -79,6 +80,7 @@ function makeProvider(
 			timeProvider,
 		},
 	);
+	provider.getDeclaredClientIds = declaredClientIds;
 
 	return provider;
 }
@@ -152,6 +154,16 @@ export class HasProvider extends HasLogging {
 	 * Get the remote YDoc. Lazily creates it on first access.
 	 * Most callers should use this property for backward compatibility.
 	 */
+	/**
+	 * Every client id this plugin currently mints edits under for this doc.
+	 * The server can only attribute an edit's version and user through a
+	 * declared id, so any Y.Doc whose updates reach the network must appear
+	 * here - Document adds its merge working copy.
+	 */
+	protected declaredClientIds(): number[] {
+		return this._ydoc ? [this._ydoc.clientID] : [];
+	}
+
 	public get ydoc(): Y.Doc {
 		if (!this._ydoc) {
 			this.ensureRemoteDoc();
@@ -192,6 +204,7 @@ export class HasProvider extends HasLogging {
 			user,
 			this.timeProvider,
 			this._awarenessActive,
+			() => this.declaredClientIds(),
 		);
 		this._provider.beforeReconnect = async () => {
 			const clientToken = await this.getProviderToken();
