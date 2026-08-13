@@ -34,9 +34,10 @@ export interface HasProviderOptions {
 
 function localAwarenessState(user: User | undefined): Record<string, unknown> {
 	if (!user) {
-		return {};
+		return { relayVersion: GIT_TAG };
 	}
 	return {
+		relayVersion: GIT_TAG,
 		user: {
 			name: user.name,
 			id: user.id,
@@ -56,6 +57,7 @@ function makeProvider(
 	const params = {
 		token: clientToken.token,
 		v: GIT_TAG,
+		cid: String(ydoc.clientID),
 	};
 	// Configure the initial state before YSweetProvider subscribes to awareness
 	// updates. A sync-only provider then starts absent without buffering a
