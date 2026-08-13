@@ -1164,7 +1164,11 @@ export class YSweetProvider extends ObservableV2<YSweetProviderEvents> {
 		while (serverUrl[serverUrl.length - 1] === "/") {
 			serverUrl = serverUrl.slice(0, serverUrl.length - 1);
 		}
-		const params = { token, v: GIT_TAG };
+		const params = {
+			token,
+			v: GIT_TAG,
+			cid: String(this.doc.clientID),
+		};
 		const encodedParams = url.encodeQueryParams(params);
 		const newUrl =
 			serverUrl +
