@@ -237,6 +237,7 @@ export class SharedFolder extends HasProvider {
 	private syncRequestedDuringSync: boolean = false;
 	private authoritative: boolean;
 	private pendingUpload: LocalStorage<string>;
+	private casVerified: LocalStorage<string>;
 	private unsubscribes: Unsubscriber[] = [];
 	private storageQuota?: number;
 	/**
@@ -389,6 +390,9 @@ export class SharedFolder extends HasProvider {
 		this.fset = new Files();
 		this.pendingUpload = new LocalStorage<string>(
 			`${appId}-system3-relay/folders/${this.guid}/pendingUploads`,
+		);
+		this.casVerified = new LocalStorage<string>(
+			`${appId}-system3-relay/folders/${this.guid}/casVerified`,
 		);
 		this.pendingUpload.forEach((guid, vpath) => {
 			if (!this.existsSync(vpath)) {
@@ -3643,6 +3647,20 @@ export class SharedFolder extends HasProvider {
 	 */
 	public clearPendingUploads(): void {
 		this.pendingUpload.clear();
+	}
+
+	/**
+	 * Durable per-machine ledger of attachment versions whose content is
+	 * known to exist in storage, so remote-existence verification runs at
+	 * most once per (file, hash) instead of on every sync pass. Content is
+	 * immutable under its hash, so an entry never needs re-checking.
+	 */
+	public isCasVerified(guid: string, hash: string): boolean {
+		return this.casVerified.get(guid) === hash;
+	}
+
+	public markCasVerified(guid: string, hash: string): void {
+		this.casVerified.set(guid, hash);
 	}
 
 	async markUploaded(

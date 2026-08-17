@@ -105,11 +105,11 @@ export const FeatureFlagSchema: {
 			"Log HTTP status, method, URL, and response bodies from Relay network requests.",
 	},
 	enableVerifyUploads: {
-		default: false,
+		default: true,
 		category: "debugging",
 		title: "Verify uploaded attachments",
 		description:
-			"After attachment sync, confirm the remote object exists and re-upload if it is missing.",
+			"Confirm each attachment's content exists in storage (once per version) and re-upload if it is missing.",
 	},
 	enableHSMRecording: {
 		default: false,
