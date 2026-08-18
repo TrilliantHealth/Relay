@@ -190,7 +190,46 @@
 		}
 		return a.name > b.name ? 1 : -1;
 	}
+
+	let scopeUndo = plugin.editorSettings.get().scopeUndoToLocalEdits === true;
+
+	async function handleScopeUndoToggle(value: boolean) {
+		scopeUndo = value;
+		await plugin.editorSettings.update((current) => ({
+			...current,
+			scopeUndoToLocalEdits: value,
+		}));
+	}
 </script>
+
+<SettingItemHeading name="Editing"></SettingItemHeading>
+<SettingGroup>
+	<SlimSettingItem
+		name="Limit undo to my own edits"
+		description="Keep collaborators' changes out of your undo history, so Ctrl+Z only reverts what you typed. Applies to every Relay Server that has no setting of its own."
+	>
+		<div class="setting-item-control" data-setting="scope-undo-to-local-edits">
+			<div
+				role="checkbox"
+				aria-checked={scopeUndo}
+				tabindex="0"
+				class="checkbox-container"
+				class:is-enabled={scopeUndo}
+				on:keypress={() => handleScopeUndoToggle(!scopeUndo)}
+				on:click={() => handleScopeUndoToggle(!scopeUndo)}
+			>
+				<input
+					type="checkbox"
+					checked={scopeUndo}
+					on:change={(e) => handleScopeUndoToggle(e.currentTarget.checked)}
+				/>
+				<div class="checkbox-toggle"></div>
+			</div>
+		</div>
+	</SlimSettingItem>
+</SettingGroup>
+
+<div class="spacer"></div>
 
 <SettingItemHeading name="Join a Relay Server"></SettingItemHeading>
 <SettingGroup>
