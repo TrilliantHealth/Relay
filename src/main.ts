@@ -103,6 +103,11 @@ import {
 	TextViewRegistry,
 	type PluginRegistrationSettings,
 } from "./TextViewRegistry";
+import {
+	DEFAULT_EDITOR_SETTINGS,
+	type EditorSettings,
+	type RelayEditorSettings,
+} from "./EditorSettings";
 
 type SettingsController = {
 	open(): void | Promise<void>;
@@ -117,8 +122,9 @@ const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
 	debugging: false,
 };
 
-interface RelaySettings extends FeatureFlags, DebugSettings {
+interface RelaySettings extends FeatureFlags, DebugSettings, EditorSettings {
 	sharedFolders: SharedFolderSettings[];
+	relayEditorSettings: Record<string, RelayEditorSettings>;
 	release: ReleaseSettings;
 	endpoints: EndpointSettings;
 	plugins?: PluginRegistrationSettings;
@@ -129,9 +135,11 @@ const DEFAULT_SETTINGS: RelaySettings = {
 		channel: "stable",
 	},
 	sharedFolders: [],
+	relayEditorSettings: {},
 	endpoints: {},
 	...FeatureFlagDefaults,
 	...DEFAULT_DEBUG_SETTINGS,
+	...DEFAULT_EDITOR_SETTINGS,
 };
 
 type VaultDeleteEvent = {
@@ -174,6 +182,10 @@ export default class Live extends Plugin {
 	updateManager!: UpdateManager;
 	private featureSettings!: NamespacedSettings<FeatureFlags>;
 	private debugSettings!: NamespacedSettings<DebugSettings>;
+	public editorSettings!: NamespacedSettings<EditorSettings>;
+	public relayEditorSettings!: NamespacedSettings<
+		Record<string, RelayEditorSettings>
+	>;
 	private folderSettings!: NamespacedSettings<SharedFolderSettings[]>;
 	public releaseSettings!: NamespacedSettings<ReleaseSettings>;
 	public loginSettings!: NamespacedSettings<LoginSettings>;
@@ -592,6 +604,14 @@ export default class Live extends Plugin {
 
 		this.featureSettings = new NamespacedSettings(this.settings, "(enable*)");
 		this.debugSettings = new NamespacedSettings(this.settings, "(debugging)");
+		this.editorSettings = new NamespacedSettings(
+			this.settings,
+			"(scopeUndoToLocalEdits)",
+		);
+		this.relayEditorSettings = new NamespacedSettings(
+			this.settings,
+			"relayEditorSettings",
+		);
 		this.folderSettings = new NamespacedSettings(
 			this.settings,
 			"sharedFolders",
@@ -1977,6 +1997,14 @@ export default class Live extends Plugin {
 			this.debugSettings.destroy();
 		});
 		this.debugSettings = null as any;
+		teardownStep("editorSettings.destroy", () => {
+			this.editorSettings.destroy();
+		});
+		this.editorSettings = null as any;
+		teardownStep("relayEditorSettings.destroy", () => {
+			this.relayEditorSettings.destroy();
+		});
+		this.relayEditorSettings = null as any;
 		teardownStep("folderSettings.destroy", () => {
 			this.folderSettings.destroy();
 		});

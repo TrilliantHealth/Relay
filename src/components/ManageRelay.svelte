@@ -543,6 +543,26 @@
 		).open();
 	}
 
+	// null = follow the vault default; true/false = this server's own choice.
+	let relayScopeUndo: boolean | null =
+		plugin.relayEditorSettings.get()?.[relay.guid]?.scopeUndoToLocalEdits ??
+		null;
+
+	$: vaultScopeUndo =
+		plugin.editorSettings.get().scopeUndoToLocalEdits === true;
+
+	async function setRelayScopeUndo(value: boolean | null) {
+		relayScopeUndo = value;
+		await plugin.relayEditorSettings.update((current) => {
+			const next = { ...current };
+			if (value === null) {
+				delete next[relay.guid];
+				return next;
+			}
+			return { ...next, [relay.guid]: { scopeUndoToLocalEdits: value } };
+		});
+	}
+
 	onDestroy(() => {
 		shareFolderModal?.destroy();
 	});
@@ -597,6 +617,28 @@
 		/>
 	</SettingItem>
 {/if}
+
+<SettingItemHeading name="Editing"></SettingItemHeading>
+<SettingItem
+	name="Limit undo to my own edits"
+	description="Keep collaborators' changes out of your undo history on this Relay Server, so Ctrl+Z only reverts what you typed."
+>
+	<select
+		class="dropdown"
+		data-setting="relay-scope-undo"
+		value={relayScopeUndo === null ? "default" : relayScopeUndo ? "on" : "off"}
+		on:change={(e) => {
+			const v = e.currentTarget.value;
+			setRelayScopeUndo(v === "default" ? null : v === "on");
+		}}
+	>
+		<option value="default">
+			Use vault default ({vaultScopeUndo ? "on" : "off"})
+		</option>
+		<option value="on">On</option>
+		<option value="off">Off</option>
+	</select>
+</SettingItem>
 
 <SettingItemHeading name="Shared Folders on this Relay Server">
 	{#if $canManageUsers && $shouldShowToggle}

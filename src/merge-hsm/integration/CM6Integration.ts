@@ -14,7 +14,8 @@ import { editorInfoField, getFrontMatterInfo } from "obsidian";
 import type { MergeHSM } from "../MergeHSM";
 import type { PositionedChange } from "../types";
 // Import the shared annotation to prevent feedback loops
-import { ySyncAnnotation } from "./annotations";
+import { ySyncAnnotation, syncDispatchAnnotations } from "./annotations";
+import { shouldScopeUndoToLocalEdits } from "../../editorContext";
 import { curryLog } from "../../debug";
 
 /**
@@ -43,6 +44,14 @@ export class CM6Integration {
 
 	/** Delay after last data-flow event before checking for drift (ms) */
 	private static readonly DRIFT_CHECK_DELAY = 3000;
+
+	/** Annotations for every CRDT -> editor dispatch this integration makes. */
+	private dispatchAnnotations(): TransactionSpec["annotations"] {
+		return syncDispatchAnnotations(
+			this.view,
+			shouldScopeUndoToLocalEdits(this.view),
+		);
+	}
 
 	private isRecoverableDispatchError(error: unknown): error is Error {
 		if (!(error instanceof Error)) return false;
@@ -176,7 +185,7 @@ export class CM6Integration {
 				const dispatchSpec: TransactionSpec = {
 					changes: cmChanges,
 					// Mark as coming from Yjs/HSM to prevent feedback loops
-					annotations: [ySyncAnnotation.of(this.view)],
+					annotations: this.dispatchAnnotations(),
 			};
 			if (this.shouldBypassFrontmatterTransactionFilters(changes)) {
 				dispatchSpec.filter = false;
@@ -200,7 +209,7 @@ export class CM6Integration {
 							);
 								const dispatchSpec: TransactionSpec = {
 									changes: cmChanges,
-									annotations: [ySyncAnnotation.of(this.view)],
+									annotations: this.dispatchAnnotations(),
 							};
 							if (this.shouldBypassFrontmatterTransactionFilters(changes)) {
 								dispatchSpec.filter = false;
@@ -257,7 +266,7 @@ export class CM6Integration {
 			const replacementChanges = [{ from: 0, to: currentText.length, insert: text }];
 				const dispatchSpec: TransactionSpec = {
 					changes,
-					annotations: [ySyncAnnotation.of(this.view)],
+					annotations: this.dispatchAnnotations(),
 			};
 			if (
 				this.shouldBypassFrontmatterTransactionFilters(
@@ -275,7 +284,7 @@ export class CM6Integration {
 						const replacementChanges = [{ from: 0, to: currentText.length, insert: text }];
 							const dispatchSpec: TransactionSpec = {
 								changes,
-								annotations: [ySyncAnnotation.of(this.view)],
+								annotations: this.dispatchAnnotations(),
 						};
 						if (
 							this.shouldBypassFrontmatterTransactionFilters(
