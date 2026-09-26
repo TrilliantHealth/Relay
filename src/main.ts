@@ -1123,19 +1123,17 @@ export default class Live extends Plugin {
 										}
 									});
 							});
-							if (this.debugSettings.get().debugging) {
-								menu.addItem((item) => {
-									item
-										.setTitle("Relay: Verify upload")
-										.setIcon("search-check")
-										.onClick(async () => {
-											const present = await ifile.verifyUpload();
-											new Notice(
-												`${ifile.name} ${present ? "on server" : "missing from server"}`,
-											);
-										});
-								});
-							}
+							menu.addItem((item) => {
+								item
+									.setTitle("Relay: Verify upload")
+									.setIcon("search-check")
+									.onClick(async () => {
+										const present = await ifile.verifyUpload();
+										new Notice(
+											`${ifile.name} ${present ? "on server" : "missing from server"}`,
+										);
+									});
+							});
 							menu.addItem((item) => {
 								item
 									.setTitle("Relay: Upload")
