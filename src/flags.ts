@@ -140,7 +140,7 @@ export const FeatureFlagSchema: {
 			"Log HTTP status, method, URL, and response bodies from Relay network requests.",
 	},
 	enableVerifyUploads: {
-		default: false,
+		default: true,
 		category: "debugging",
 		title: "Verify uploaded attachments",
 		description:
@@ -161,7 +161,7 @@ export const FeatureFlagSchema: {
 			"Assert MergeHSM resource expectations declared on the machine states.",
 	},
 	enableDraftMode: {
-		default: true,
+		default: false,
 		category: "labs",
 		title: "Draft mode",
 		description:
