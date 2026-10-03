@@ -14,6 +14,7 @@ import {
 	s3ApiErrorFromResponse,
 	s3ApiErrorFromUnknown,
 	s3NetworkFailureFromUnknown,
+	s3TransferFailureFromUnknown,
 } from "./S3Error";
 
 // In-attempt retry schedule for transient transfer failures: one retry per
@@ -124,7 +125,9 @@ export class ContentAddressedStore extends HasLogging {
 				return await request();
 			} catch (error) {
 				const classified =
-					s3NetworkFailureFromUnknown(error, operation) ?? error;
+					s3NetworkFailureFromUnknown(error, operation) ??
+					s3TransferFailureFromUnknown(error, operation) ??
+					error;
 				const delayCapMs = this.transferRetryDelaysMs[attempt];
 				if (!isRetryableS3Error(classified) || delayCapMs === undefined) {
 					throw classified;
