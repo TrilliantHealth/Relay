@@ -70,6 +70,8 @@
     {
       "files": [
         "__tests__/**/*.ts",
+        "tests/**/*.ts",
+        "tests-th/**/*.ts",
         "unit/**/*.ts"
       ],
       "rules": {
