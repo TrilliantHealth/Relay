@@ -1,3 +1,7 @@
+---
+created-at: 2026-10-20T13:12:43-04:00
+created-by: MatchOdd
+---
 # TH local move candidate
 
 This branch ports the reviewed public local-move API from [upstream PR #147](https://github.com/No-Instructions/Relay/pull/147), commit `20261020.1308-18d5a07c`, onto deployed `0.8.13-pre.2-th.1`. The API contract is in [API-LOCAL-MOVE.md](API-LOCAL-MOVE.md).
