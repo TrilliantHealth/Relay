@@ -47,18 +47,31 @@ export interface RenamedNode {
 export type PendingDescendants = Map<RenamedNode, { oldPath: string; local: boolean }>;
 
 /**
- * Record a renamed folder's descendants. Call during the folder's own rename
- * callback, while its descendants still carry their old paths.
+ * Record a renamed folder's descendants, during the folder's own rename
+ * callback. A descendant usually still carries its old path then, but one may
+ * already carry its new path (Obsidian can re-index a folder note first), so
+ * each expected old path is derived from the folder's.
  */
 export function expectDescendants(
 	pending: PendingDescendants,
 	folder: RenamedNode,
+	oldPath: string,
 	local: boolean,
 ): void {
-	for (const child of folder.children ?? []) {
-		pending.set(child, { oldPath: child.path, local });
-		expectDescendants(pending, child, local);
-	}
+	const relative = (path: string): string | undefined => {
+		for (const prefix of [folder.path, oldPath]) {
+			if (path.startsWith(prefix + "/")) return path.slice(prefix.length);
+		}
+		return undefined;
+	};
+	const walk = (node: RenamedNode): void => {
+		for (const child of node.children ?? []) {
+			const rest = relative(child.path);
+			if (rest !== undefined) pending.set(child, { oldPath: oldPath + rest, local });
+			walk(child);
+		}
+	};
+	walk(folder);
 }
 
 /** Whether a rename belongs to a folder rename and, if so, whether that was local. */

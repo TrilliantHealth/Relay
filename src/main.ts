@@ -1499,7 +1499,7 @@ export default class Live extends Plugin {
 						sharedFolder.move(file.path);
 						this.sharedFolders.update();
 						if (inheritedLocal === undefined) {
-							expectDescendants(this.renamedDescendants, file, false);
+							expectDescendants(this.renamedDescendants, file, oldPath, false);
 						}
 						return;
 					}
@@ -1524,7 +1524,7 @@ export default class Live extends Plugin {
 						? localMoves(oldPath, file.path, file instanceof TFolder ? "folder" : "file")
 						: [];
 				} else if (file instanceof TFolder && (fromFolder || toFolder)) {
-					expectDescendants(this.renamedDescendants, file, moves.length > 0);
+					expectDescendants(this.renamedDescendants, file, oldPath, moves.length > 0);
 				}
 				this.reportLocalMoves(moves);
 				if (fromFolder || toFolder) {

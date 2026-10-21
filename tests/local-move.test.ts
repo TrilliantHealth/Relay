@@ -96,7 +96,7 @@ test("a folder's descendants inherit its provenance in their own callbacks, once
 	for (const local of [true, false]) {
 		const pending: PendingDescendants = new Map();
 		const { folder, sub, note, sibling } = tree();
-		expectDescendants(pending, folder, local);
+		expectDescendants(pending, folder, "shared/old", local);
 		for (const [node, newPath] of [
 			[sub, "shared/new/sub"],
 			[note, "shared/new/sub/note.md"],
@@ -114,7 +114,20 @@ test("a folder's descendants inherit its provenance in their own callbacks, once
 test("a rename that is not the expected descendant callback inherits nothing", () => {
 	const pending: PendingDescendants = new Map();
 	const { folder, sibling } = tree();
-	expectDescendants(pending, folder, true);
+	expectDescendants(pending, folder, "shared/old", true);
 	expect(takeDescendant(pending, { path: "shared/new/sibling.md" }, "shared/old/sibling.md")).toBeUndefined();
 	expect(takeDescendant(pending, sibling, "elsewhere/sibling.md")).toBeUndefined();
+});
+
+test("a descendant already at its new path still matches its own rename callback", () => {
+	const pending: PendingDescendants = new Map();
+	const folderNote = { path: "shared/new/old.md" };
+	const child = { path: "shared/old/child.md" };
+	expectDescendants(pending, { path: "shared/new", children: [folderNote, child] }, "shared/old", true);
+	expect(takeDescendant(pending, folderNote, "shared/old/old.md")).toBe(true);
+	// A later rename of the folder note by another plugin is its own move.
+	folderNote.path = "shared/new/new.md";
+	expect(takeDescendant(pending, folderNote, "shared/new/old.md")).toBeUndefined();
+	child.path = "shared/new/child.md";
+	expect(takeDescendant(pending, child, "shared/old/child.md")).toBe(true);
 });
