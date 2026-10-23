@@ -16,6 +16,7 @@ export interface SyncFlags {
 	pdfs?: boolean;
 	canvas?: boolean;
 	bases?: boolean;
+	html?: boolean;
 	otherTypes?: boolean;
 }
 
@@ -84,6 +85,15 @@ export class SyncSettingsManager extends NamespacedSettings<
 			name: "PDFs",
 			description: "Sync PDF files (.pdf)",
 			extensions: ["pdf"],
+			defaultEnabled: true,
+			requiresStorage: true,
+		},
+		// HTML stays SyncType.File in folder metadata, so clients without this category
+		// read it exactly as before; TypeRegistry gates it by this flag instead of otherTypes.
+		html: {
+			name: "HTML",
+			description: "Sync HTML files (.html, .htm)",
+			extensions: ["html", "htm"],
 			defaultEnabled: true,
 			requiresStorage: true,
 		},

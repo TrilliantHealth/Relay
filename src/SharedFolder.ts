@@ -307,7 +307,7 @@ export class SharedFolder extends HasProvider {
 	private pendingCreates: Map<string, number> = new Map();
 	/** Vault rename echoes produced while restoring a Reader-rejected move. */
 	private readerRestoreRenameEchoes: Set<string> = new Set();
-	private enabledSyncTypes: Set<SyncType> = new Set();
+	private enabledSyncGates: Set<string> = new Set();
 
 	private _persistence: IndexeddbPersistence;
 	proxy: SharedFolder;
@@ -479,8 +479,8 @@ export class SharedFolder extends HasProvider {
 		// run: an empty baseline reads as "every type was just enabled" and
 		// runs addLocalDocs while the folder is still disconnected, before
 		// readiness gates that discovery.
-		this.enabledSyncTypes = new Set(
-			this.syncStore.typeRegistry.getEnabledFileSyncTypes(),
+		this.enabledSyncGates = new Set(
+			this.syncStore.typeRegistry.getEnabledSyncGates().keys(),
 		);
 
 		this.syncStore.onCompetingClaim = (path: string, meta: Meta) => {
@@ -1499,7 +1499,10 @@ export class SharedFolder extends HasProvider {
 				const vpath = this.getVirtualPath(tfile.path);
 				const fileType =
 					this.syncStore.typeRegistry.getTypeForPath(vpath);
-				return types.includes(fileType);
+				return (
+					types.includes(fileType) &&
+					this.syncStore.typeRegistry.isEnabledFor(fileType, vpath)
+				);
 			});
 		}
 		const files: IFile[] = [];
@@ -3629,7 +3632,11 @@ export class SharedFolder extends HasProvider {
 		const remoteIds = syncStore.remoteIds;
 		syncStore.forEachWithPending((meta, path) => {
 			if (!this._assertNamespacing(path)) return;
-			if (meta && types.contains(meta.type)) {
+			if (
+				meta &&
+				types.contains(meta.type) &&
+				syncStore.typeRegistry.isEnabledFor(meta.type, path)
+			) {
 				ops.push(this.applyRemoteState(meta.id, path, remoteIds, diffLog));
 			} else if (!meta && types.contains(SyncType.Document)) {
 				ops.push(this.applyPendingUpload(path));
@@ -3944,11 +3951,15 @@ export class SharedFolder extends HasProvider {
 
 				// When file types are newly enabled, enqueue their local
 				// files for syncing before the rest of the tree sync runs.
-				const currentTypes = this.syncStore.typeRegistry.getEnabledFileSyncTypes();
-				const newlyEnabled = currentTypes.filter(
-					(t) => !this.enabledSyncTypes.has(t),
-				);
-				this.enabledSyncTypes = new Set(currentTypes);
+				const currentGates = this.syncStore.typeRegistry.getEnabledSyncGates();
+				const newlyEnabled = [
+					...new Set(
+						[...currentGates]
+							.filter(([gate]) => !this.enabledSyncGates.has(gate))
+							.map(([, type]) => type),
+					),
+				];
+				this.enabledSyncGates = new Set(currentGates.keys());
 				if (newlyEnabled.length > 0) {
 					this.addLocalDocs(newlyEnabled);
 				}
