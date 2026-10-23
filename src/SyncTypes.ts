@@ -101,7 +101,8 @@ type SyncTypeToMeta = {
 	[SyncType.File]: FileMeta;
 };
 
-export const SyncFlagToTypeMap: Record<keyof SyncFlags, SyncType> = {
+// `html` is absent: it has no SyncType of its own (see TypeRegistry.isEnabledFor).
+export const SyncFlagToTypeMap: Record<Exclude<keyof SyncFlags, "html">, SyncType> = {
 	images: SyncType.Image,
 	audio: SyncType.Audio,
 	videos: SyncType.Video,
@@ -360,11 +361,24 @@ export class TypeRegistry extends Observable<TypeRegistry> {
 		if (meta) {
 			const config = this.protocols.get(meta.type);
 			if (!config) return false;
-			return config.enabled && meta.version <= config.maxVersion;
+			return this.isEnabledFor(meta.type, vpath) && meta.version <= config.maxVersion;
 		}
 
 		// For new files, check path
-		const type = this.getTypeForPath(vpath);
+		return this.isEnabledFor(this.getTypeForPath(vpath), vpath);
+	}
+
+	/**
+	 * Whether a file of `type` at `vpath` syncs. A SyncType.File with an HTML extension follows
+	 * the `html` category rather than `otherTypes`; every other file follows its type.
+	 * Does not check protocol version; `canSync` does.
+	 */
+	isEnabledFor(type: SyncType, vpath: string): boolean {
+		if (type === SyncType.File) {
+			const html = this.syncSettings.getCategory("html");
+			const extension = (vpath.split(".").pop() || "").toLowerCase();
+			if (html.extensions.includes(extension)) return html.enabled;
+		}
 		return !!this.protocols.get(type)?.enabled;
 	}
 
@@ -376,6 +390,10 @@ export class TypeRegistry extends Observable<TypeRegistry> {
 		});
 	}
 
+	/**
+	 * Types that may have synced files. `SyncType.File` is included when either `otherTypes`
+	 * or `html` is on, so entries of that type must still be narrowed per path with `isEnabledFor`.
+	 */
 	public getEnabledFileSyncTypes(): SyncType[] {
 		// Documents and folders are always enabled
 
@@ -386,7 +404,33 @@ export class TypeRegistry extends Observable<TypeRegistry> {
 			}
 		});
 
+		if (
+			!enabledTypes.includes(SyncType.File) &&
+			this.syncSettings.getCategory("html").enabled
+		) {
+			enabledTypes.push(SyncType.File);
+		}
+
 		return enabledTypes;
+	}
+
+	/**
+	 * The switches currently letting files sync, keyed so that a key appearing between two calls
+	 * means some local files just became syncable. Each is one SyncType, except that
+	 * `SyncType.File` has two switches, `otherTypes` and `html`.
+	 */
+	public getEnabledSyncGates(): Map<string, SyncType> {
+		const gates = new Map<string, SyncType>();
+		for (const type of this.getEnabledFileSyncTypes()) {
+			if (type !== SyncType.File) gates.set(type, type);
+		}
+		if (this.protocols.get(SyncType.File)?.enabled) {
+			gates.set("file:otherTypes", SyncType.File);
+		}
+		if (this.syncSettings.getCategory("html").enabled) {
+			gates.set("file:html", SyncType.File);
+		}
+		return gates;
 	}
 
 	getTypeForPath(vpath: string): SyncType {
